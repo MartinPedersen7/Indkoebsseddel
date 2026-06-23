@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+  <meta charset="UTF-8">
+
+  <!-- Gør appen mobilvenlig -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <title>Min opgave-app</title>
+
+  <!-- Design -->
+  <link rel="stylesheet" href="style.css">
+
+  <!-- PWA manifest -->
+  <link rel="manifest" href="manifest.json">
+
+  <!-- Farve på mobil-browserens topbjælke -->
+  <meta name="theme-color" content="#2563eb">
+</head>
+<body>
+
+  <main class="app">
+    <h1>Min opgave-app</h1>
+
+    <p class="intro">Skriv en opgave, du gerne vil huske.</p>
+
+    <div class="input-omraade">
+      <input id="opgaveInput" type="text" placeholder="Fx Ring til Jens">
+      <button onclick="tilfoejOpgave()">Tilføj</button>
+    </div>
+
+    <ul id="opgaveListe"></ul>
+  </main>
+
+  <script src="script.js"></script>
+</body>
+</html>

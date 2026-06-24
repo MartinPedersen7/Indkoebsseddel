@@ -1,5 +1,35 @@
-const STORAGE_KEY = "indkoeb_items_v2";
-const SETTINGS_KEY = "indkoeb_settings_v3";
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+
+import {
+  getFirestore,
+  collection,
+  doc,
+  setDoc,
+  updateDoc,
+  deleteDoc,
+  onSnapshot,
+  query,
+  orderBy,
+  serverTimestamp
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyCndCIttUzhl1xedUgs4vdDx8Lvf5SOEU0",
+  authDomain: "indkoebsseddel-bb06d.firebaseapp.com",
+  projectId: "indkoebsseddel-bb06d",
+  storageBucket: "indkoebsseddel-bb06d.firebasestorage.app",
+  messagingSenderId: "89280355254",
+  appId: "1:89280355254:web:3d68ccdc42921667c3ff17"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+
+const HOUSEHOLD_ID = "martin-faelles-indkoeb";
+
+const householdRef = doc(db, "households", HOUSEHOLD_ID);
+const itemsCollectionRef = collection(db, "households", HOUSEHOLD_ID, "items");
+
 const HISTORY_KEY = "indkoeb_history_v1";
 
 const categories = [
@@ -91,22 +121,23 @@ const categoryKeywords = {
 };
 
 let items = [];
-let settings = {
-  selectedStore: ""
-};
-
+let selectedStoreId = "";
 let editingItemId = null;
 let lastDeletedItem = null;
 let toastTimer = null;
+let hasLoadedItemsOnce = false;
+let hasLoadedHouseholdOnce = false;
 
 const storeStartScreen = document.getElementById("storeStartScreen");
 const appShell = document.getElementById("appShell");
 const selectedStoreLogo = document.getElementById("selectedStoreLogo");
 const selectedStoreName = document.getElementById("selectedStoreName");
+const startSyncStatus = document.getElementById("startSyncStatus");
 
 const addItemForm = document.getElementById("addItemForm");
 const itemInput = document.getElementById("itemInput");
 const changeStoreButton = document.getElementById("changeStoreButton");
+const syncStatus = document.getElementById("syncStatus");
 const itemsLeftCount = document.getElementById("itemsLeftCount");
 const activeItemsArea = document.getElementById("activeItemsArea");
 const checkedItemsSection = document.getElementById("checkedItemsSection");
@@ -131,11 +162,11 @@ const undoButton = document.getElementById("undoButton");
 window.addEventListener("load", initApp);
 
 function initApp() {
-  loadData();
   populateEditCategories();
-  applySettings();
   registerEvents();
+  applyStoreView();
   renderApp();
+  startFirestoreSync();
   registerServiceWorker();
 }
 
@@ -146,25 +177,23 @@ function registerEvents() {
     });
   });
 
-  changeStoreButton.addEventListener("click", function() {
+  changeStoreButton.addEventListener("click", async function() {
     const hasItems = items.length > 0;
 
     if (hasItems) {
-      const confirmed = confirm("Vil du skifte butik for denne indkøbsseddel? Varerne bliver på listen.");
+      const confirmed = confirm("Vil du skifte butik for denne fælles indkøbsseddel? Varerne bliver på listen.");
 
       if (!confirmed) {
         return;
       }
     }
 
-    settings.selectedStore = "";
-    saveSettings();
-    applySettings();
+    await updateHouseholdStore("");
   });
 
-  addItemForm.addEventListener("submit", function(event) {
+  addItemForm.addEventListener("submit", async function(event) {
     event.preventDefault();
-    addItemFromInput();
+    await addItemFromInput();
   });
 
   clearCheckedButton.addEventListener("click", clearCheckedItems);
@@ -173,14 +202,14 @@ function registerEvents() {
     editDialog.close();
   });
 
-  editForm.addEventListener("submit", function(event) {
+  editForm.addEventListener("submit", async function(event) {
     event.preventDefault();
-    saveEditedItem();
+    await saveEditedItem();
   });
 
-  deleteFromDialogButton.addEventListener("click", function() {
+  deleteFromDialogButton.addEventListener("click", async function() {
     if (editingItemId) {
-      deleteItem(editingItemId);
+      await deleteItem(editingItemId);
       editDialog.close();
     }
   });
@@ -188,41 +217,104 @@ function registerEvents() {
   undoButton.addEventListener("click", undoDelete);
 }
 
-function loadData() {
-  const savedItems = localStorage.getItem(STORAGE_KEY);
-  const savedSettings = localStorage.getItem(SETTINGS_KEY);
+function startFirestoreSync() {
+  setSyncState("Forbinder...", "warning");
 
-  if (savedItems) {
-    try {
-      items = JSON.parse(savedItems);
-    } catch {
-      items = [];
+  onSnapshot(
+    householdRef,
+    function(snapshot) {
+      hasLoadedHouseholdOnce = true;
+
+      if (snapshot.exists()) {
+        const data = snapshot.data();
+        selectedStoreId = data.selectedStore || "";
+      } else {
+        selectedStoreId = "";
+      }
+
+      applyStoreView();
+      updateOverallSyncState();
+    },
+    function(error) {
+      console.error("Fejl ved household sync:", error);
+      setSyncState("Sync-fejl", "error");
+      startSyncStatus.textContent = "Kunne ikke forbinde til fælles liste.";
     }
+  );
+
+  const itemsQuery = query(itemsCollectionRef, orderBy("sortOrder", "asc"));
+
+  onSnapshot(
+    itemsQuery,
+    function(snapshot) {
+      hasLoadedItemsOnce = true;
+
+      items = snapshot.docs.map(function(documentSnapshot) {
+        return {
+          id: documentSnapshot.id,
+          ...documentSnapshot.data()
+        };
+      });
+
+      renderApp();
+      updateOverallSyncState();
+    },
+    function(error) {
+      console.error("Fejl ved item sync:", error);
+      setSyncState("Sync-fejl", "error");
+      startSyncStatus.textContent = "Kunne ikke hente varer fra fælles liste.";
+    }
+  );
+}
+
+function updateOverallSyncState() {
+  if (hasLoadedHouseholdOnce && hasLoadedItemsOnce) {
+    setSyncState("Synkroniseret", "ok");
+    startSyncStatus.textContent = "Fælles liste er klar.";
+  } else {
+    setSyncState("Forbinder...", "warning");
+    startSyncStatus.textContent = "Forbinder til fælles liste...";
+  }
+}
+
+function setSyncState(text, state) {
+  syncStatus.textContent = text;
+  syncStatus.classList.remove("warning", "error");
+
+  if (state === "warning") {
+    syncStatus.classList.add("warning");
   }
 
-  if (savedSettings) {
-    try {
-      settings = {
-        ...settings,
-        ...JSON.parse(savedSettings)
-      };
-    } catch {
-      settings = {
-        selectedStore: ""
-      };
-    }
+  if (state === "error") {
+    syncStatus.classList.add("error");
   }
 }
 
-function saveItems() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+async function updateHouseholdStore(storeId) {
+  try {
+    await setDoc(
+      householdRef,
+      {
+        selectedStore: storeId,
+        updatedAt: serverTimestamp()
+      },
+      { merge: true }
+    );
+  } catch (error) {
+    console.error("Kunne ikke opdatere butik:", error);
+    alert("Butikken kunne ikke gemmes. Tjek internetforbindelsen og Firebase.");
+  }
 }
 
-function saveSettings() {
-  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+async function selectStore(storeId) {
+  await updateHouseholdStore(storeId);
+
+  setTimeout(function() {
+    itemInput.focus();
+  }, 150);
 }
 
-function applySettings() {
+function applyStoreView() {
   const selectedStore = getSelectedStore();
 
   if (!selectedStore) {
@@ -239,24 +331,13 @@ function applySettings() {
   selectedStoreName.textContent = selectedStore.name;
 }
 
-function selectStore(storeId) {
-  settings.selectedStore = storeId;
-  saveSettings();
-  applySettings();
-  renderApp();
-
-  setTimeout(function() {
-    itemInput.focus();
-  }, 150);
-}
-
 function getSelectedStore() {
   return stores.find(function(store) {
-    return store.id === settings.selectedStore;
+    return store.id === selectedStoreId;
   });
 }
 
-function addItemFromInput() {
+async function addItemFromInput() {
   const rawValue = itemInput.value.trim();
 
   if (!rawValue) {
@@ -265,10 +346,10 @@ function addItemFromInput() {
   }
 
   const parsed = parseItemInput(rawValue);
-  const now = new Date().toISOString();
+
+  const newItemRef = doc(itemsCollectionRef);
 
   const item = {
-    id: createId(),
     name: parsed.name,
     normalizedName: normalizeText(parsed.name),
     quantity: parsed.quantity,
@@ -276,21 +357,29 @@ function addItemFromInput() {
     note: "",
     category: detectCategory(parsed.name),
     checked: false,
-    createdAt: now,
-    updatedAt: now,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
     createdBy: "Martin",
     checkedBy: "",
     sortOrder: Date.now()
   };
 
-  items.push(item);
-  saveItems();
-  saveToHistory(item);
+  try {
+    await setDoc(newItemRef, item);
 
-  itemInput.value = "";
-  itemInput.focus();
+    saveToHistory({
+      id: newItemRef.id,
+      ...item,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    });
 
-  renderApp();
+    itemInput.value = "";
+    itemInput.focus();
+  } catch (error) {
+    console.error("Kunne ikke tilføje vare:", error);
+    alert("Varen kunne ikke tilføjes. Tjek internetforbindelsen.");
+  }
 }
 
 function parseItemInput(input) {
@@ -422,8 +511,8 @@ function renderCheckedItems(checkedItems) {
     return;
   }
 
-  const sorted = checkedItems.sort(function(a, b) {
-    return new Date(b.updatedAt) - new Date(a.updatedAt);
+  const sorted = [...checkedItems].sort(function(a, b) {
+    return getTimeValue(b.updatedAt) - getTimeValue(a.updatedAt);
   });
 
   checkedItemsArea.innerHTML = `
@@ -461,7 +550,7 @@ function createItemRowHtml(item) {
       </button>
 
       <div class="item-main" data-action="toggle">
-        <p class="item-title">${escapeHtml(item.name)}</p>
+        <p class="item-title">${escapeHtml(item.name || "")}</p>
         ${meta ? `<p class="item-meta">${escapeHtml(meta)}</p>` : ""}
       </div>
 
@@ -499,13 +588,13 @@ function bindItemRowEvents(container) {
     const id = row.dataset.id;
 
     row.querySelectorAll("[data-action]").forEach(function(element) {
-      element.addEventListener("click", function(event) {
+      element.addEventListener("click", async function(event) {
         event.stopPropagation();
 
         const action = element.dataset.action;
 
         if (action === "toggle") {
-          toggleItem(id);
+          await toggleItem(id);
         }
 
         if (action === "edit") {
@@ -513,26 +602,32 @@ function bindItemRowEvents(container) {
         }
 
         if (action === "delete") {
-          deleteItem(id);
+          await deleteItem(id);
         }
       });
     });
   });
 }
 
-function toggleItem(id) {
+async function toggleItem(id) {
   const item = items.find(item => item.id === id);
 
   if (!item) {
     return;
   }
 
-  item.checked = !item.checked;
-  item.updatedAt = new Date().toISOString();
-  item.checkedBy = item.checked ? "Martin" : "";
+  const itemRef = doc(itemsCollectionRef, id);
 
-  saveItems();
-  renderApp();
+  try {
+    await updateDoc(itemRef, {
+      checked: !item.checked,
+      updatedAt: serverTimestamp(),
+      checkedBy: !item.checked ? "Martin" : ""
+    });
+  } catch (error) {
+    console.error("Kunne ikke krydse vare af:", error);
+    alert("Varen kunne ikke opdateres.");
+  }
 }
 
 function openEditDialog(id) {
@@ -544,7 +639,7 @@ function openEditDialog(id) {
 
   editingItemId = id;
 
-  editName.value = item.name;
+  editName.value = item.name || "";
   editQuantity.value = item.quantity || "";
   editUnit.value = item.unit || "";
   editCategory.value = item.category || "Andet";
@@ -557,7 +652,7 @@ function openEditDialog(id) {
   }
 }
 
-function saveEditedItem() {
+async function saveEditedItem() {
   const item = items.find(item => item.id === editingItemId);
 
   if (!item) {
@@ -571,23 +666,36 @@ function saveEditedItem() {
     return;
   }
 
-  item.name = name;
-  item.normalizedName = normalizeText(name);
-  item.quantity = editQuantity.value.trim();
-  item.unit = editUnit.value.trim();
-  item.category = editCategory.value;
-  item.note = editNote.value.trim();
-  item.updatedAt = new Date().toISOString();
+  const updatedItem = {
+    name,
+    normalizedName: normalizeText(name),
+    quantity: editQuantity.value.trim(),
+    unit: editUnit.value.trim(),
+    category: editCategory.value,
+    note: editNote.value.trim(),
+    updatedAt: serverTimestamp()
+  };
 
-  saveItems();
-  saveToHistory(item);
+  try {
+    const itemRef = doc(itemsCollectionRef, editingItemId);
+    await updateDoc(itemRef, updatedItem);
 
-  editingItemId = null;
-  editDialog.close();
-  renderApp();
+    saveToHistory({
+      id: editingItemId,
+      ...item,
+      ...updatedItem,
+      updatedAt: new Date().toISOString()
+    });
+
+    editingItemId = null;
+    editDialog.close();
+  } catch (error) {
+    console.error("Kunne ikke gemme vare:", error);
+    alert("Varen kunne ikke gemmes.");
+  }
 }
 
-function deleteItem(id) {
+async function deleteItem(id) {
   const index = items.findIndex(item => item.id === id);
 
   if (index === -1) {
@@ -599,28 +707,43 @@ function deleteItem(id) {
     index
   };
 
-  items.splice(index, 1);
-
-  saveItems();
-  renderApp();
-  showToast("Slettet");
+  try {
+    const itemRef = doc(itemsCollectionRef, id);
+    await deleteDoc(itemRef);
+    showToast("Slettet");
+  } catch (error) {
+    console.error("Kunne ikke slette vare:", error);
+    alert("Varen kunne ikke slettes.");
+  }
 }
 
-function undoDelete() {
+async function undoDelete() {
   if (!lastDeletedItem) {
     return;
   }
 
-  items.splice(lastDeletedItem.index, 0, lastDeletedItem.item);
-  lastDeletedItem = null;
+  const itemToRestore = { ...lastDeletedItem.item };
+  const id = itemToRestore.id;
+  delete itemToRestore.id;
 
-  saveItems();
-  renderApp();
-  hideToast();
+  try {
+    const itemRef = doc(itemsCollectionRef, id);
+    await setDoc(itemRef, {
+      ...itemToRestore,
+      updatedAt: serverTimestamp()
+    });
+
+    lastDeletedItem = null;
+    hideToast();
+  } catch (error) {
+    console.error("Kunne ikke fortryde sletning:", error);
+    alert("Kunne ikke fortryde sletning.");
+  }
 }
 
-function clearCheckedItems() {
-  const checkedCount = items.filter(item => item.checked).length;
+async function clearCheckedItems() {
+  const checkedItems = items.filter(item => item.checked);
+  const checkedCount = checkedItems.length;
 
   if (checkedCount === 0) {
     return;
@@ -632,9 +755,16 @@ function clearCheckedItems() {
     return;
   }
 
-  items = items.filter(item => !item.checked);
-  saveItems();
-  renderApp();
+  try {
+    await Promise.all(
+      checkedItems.map(function(item) {
+        return deleteDoc(doc(itemsCollectionRef, item.id));
+      })
+    );
+  } catch (error) {
+    console.error("Kunne ikke rydde købte varer:", error);
+    alert("De købte varer kunne ikke ryddes.");
+  }
 }
 
 function populateEditCategories() {
@@ -704,7 +834,7 @@ function createId() {
 }
 
 function normalizeText(value) {
-  return value
+  return String(value)
     .toLowerCase()
     .trim()
     .normalize("NFD")
@@ -719,6 +849,26 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+function getTimeValue(value) {
+  if (!value) {
+    return 0;
+  }
+
+  if (typeof value.toMillis === "function") {
+    return value.toMillis();
+  }
+
+  if (typeof value === "string") {
+    return Date.parse(value) || 0;
+  }
+
+  if (typeof value === "number") {
+    return value;
+  }
+
+  return 0;
 }
 
 function registerServiceWorker() {

@@ -1,4 +1,4 @@
-const CACHE_NAME = "indkoeb-v2";
+const CACHE_NAME = "indkoeb-v4";
 
 const FILES_TO_CACHE = [
   "./",

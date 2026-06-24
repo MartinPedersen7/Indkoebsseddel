@@ -7,8 +7,11 @@
   --blue-dark: #1d4ed8;
   --blue-light: #dbeafe;
   --green: #16a34a;
+  --green-light: #dcfce7;
   --red: #dc2626;
   --red-light: #fee2e2;
+  --yellow: #ca8a04;
+  --yellow-light: #fef9c3;
   --background: #f4f7fb;
   --card: #ffffff;
   --text: #111827;
@@ -60,6 +63,13 @@ button {
 .start-text {
   margin: 8px 0 20px;
   color: var(--muted);
+}
+
+.start-sync-status {
+  text-align: center;
+  color: var(--muted);
+  margin: 16px 0 0;
+  font-size: 14px;
 }
 
 .store-grid {
@@ -146,6 +156,11 @@ button {
   color: #bfdbfe;
 }
 
+.store-start-inner .eyebrow {
+  color: var(--blue-dark);
+  font-weight: 800;
+}
+
 .app-header h1 {
   margin: 0;
   font-size: 30px;
@@ -183,9 +198,33 @@ button {
   border-radius: var(--radius);
   padding: 14px;
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: 1fr auto;
   gap: 10px;
+  align-items: center;
   box-shadow: var(--shadow);
+}
+
+.sync-pill {
+  min-height: 46px;
+  border-radius: 14px;
+  padding: 12px 14px;
+  font-weight: 800;
+  font-size: 13px;
+  display: grid;
+  place-items: center;
+  color: var(--green);
+  background: var(--green-light);
+  white-space: nowrap;
+}
+
+.sync-pill.warning {
+  color: var(--yellow);
+  background: var(--yellow-light);
+}
+
+.sync-pill.error {
+  color: var(--red);
+  background: var(--red-light);
 }
 
 .main-content {
@@ -550,6 +589,14 @@ textarea:focus {
 
   .counter-card span {
     font-size: 25px;
+  }
+
+  .toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .sync-pill {
+    width: 100%;
   }
 
   .input-row {

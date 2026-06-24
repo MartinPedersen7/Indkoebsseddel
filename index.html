@@ -45,10 +45,6 @@
           <span>365</span>
         </button>
       </div>
-
-      <div class="welcome-footer">
-        <p id="startSyncStatus" class="start-sync-status">Forbinder til fælles liste...</p>
-      </div>
     </div>
   </section>
 
@@ -78,10 +74,6 @@
       <button id="changeStoreButton" class="secondary-button" type="button">
         Skift butik
       </button>
-
-      <div id="syncStatus" class="sync-pill">
-        Forbinder...
-      </div>
     </section>
 
     <main class="main-content">
@@ -182,7 +174,11 @@
 
   <div id="toast" class="toast hidden">
     <span id="toastText">Slettet</span>
-    <button id="undoButton" type="button">Fortryd</button>
+
+    <div class="toast-actions">
+      <button id="undoButton" type="button">Fortryd</button>
+      <button id="closeToastButton" type="button">Luk</button>
+    </div>
   </div>
 
   <script type="module" src="script.js"></script>

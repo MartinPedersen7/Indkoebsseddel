@@ -125,19 +125,15 @@ let selectedStoreId = "";
 let editingItemId = null;
 let lastDeletedItem = null;
 let toastTimer = null;
-let hasLoadedItemsOnce = false;
-let hasLoadedHouseholdOnce = false;
 
 const storeStartScreen = document.getElementById("storeStartScreen");
 const appShell = document.getElementById("appShell");
 const selectedStoreLogo = document.getElementById("selectedStoreLogo");
 const selectedStoreName = document.getElementById("selectedStoreName");
-const startSyncStatus = document.getElementById("startSyncStatus");
 
 const addItemForm = document.getElementById("addItemForm");
 const itemInput = document.getElementById("itemInput");
 const changeStoreButton = document.getElementById("changeStoreButton");
-const syncStatus = document.getElementById("syncStatus");
 const itemsLeftCount = document.getElementById("itemsLeftCount");
 const activeItemsArea = document.getElementById("activeItemsArea");
 const checkedItemsSection = document.getElementById("checkedItemsSection");
@@ -158,6 +154,7 @@ const deleteFromDialogButton = document.getElementById("deleteFromDialogButton")
 const toast = document.getElementById("toast");
 const toastText = document.getElementById("toastText");
 const undoButton = document.getElementById("undoButton");
+const closeToastButton = document.getElementById("closeToastButton");
 
 window.addEventListener("load", initApp);
 
@@ -215,16 +212,17 @@ function registerEvents() {
   });
 
   undoButton.addEventListener("click", undoDelete);
+
+  closeToastButton.addEventListener("click", function() {
+    lastDeletedItem = null;
+    hideToast();
+  });
 }
 
 function startFirestoreSync() {
-  setSyncState("Forbinder...", "warning");
-
   onSnapshot(
     householdRef,
     function(snapshot) {
-      hasLoadedHouseholdOnce = true;
-
       if (snapshot.exists()) {
         const data = snapshot.data();
         selectedStoreId = data.selectedStore || "";
@@ -233,12 +231,9 @@ function startFirestoreSync() {
       }
 
       applyStoreView();
-      updateOverallSyncState();
     },
     function(error) {
       console.error("Fejl ved household sync:", error);
-      setSyncState("Sync-fejl", "error");
-      startSyncStatus.textContent = "Kunne ikke forbinde til fælles liste.";
     }
   );
 
@@ -247,8 +242,6 @@ function startFirestoreSync() {
   onSnapshot(
     itemsQuery,
     function(snapshot) {
-      hasLoadedItemsOnce = true;
-
       items = snapshot.docs.map(function(documentSnapshot) {
         return {
           id: documentSnapshot.id,
@@ -257,37 +250,11 @@ function startFirestoreSync() {
       });
 
       renderApp();
-      updateOverallSyncState();
     },
     function(error) {
       console.error("Fejl ved item sync:", error);
-      setSyncState("Sync-fejl", "error");
-      startSyncStatus.textContent = "Kunne ikke hente varer fra fælles liste.";
     }
   );
-}
-
-function updateOverallSyncState() {
-  if (hasLoadedHouseholdOnce && hasLoadedItemsOnce) {
-    setSyncState("Synkroniseret", "ok");
-    startSyncStatus.textContent = "Fælles liste er klar.";
-  } else {
-    setSyncState("Forbinder...", "warning");
-    startSyncStatus.textContent = "Forbinder til fælles liste...";
-  }
-}
-
-function setSyncState(text, state) {
-  syncStatus.textContent = text;
-  syncStatus.classList.remove("warning", "error");
-
-  if (state === "warning") {
-    syncStatus.classList.add("warning");
-  }
-
-  if (state === "error") {
-    syncStatus.classList.add("error");
-  }
 }
 
 async function updateHouseholdStore(storeId) {
@@ -308,6 +275,7 @@ async function updateHouseholdStore(storeId) {
 
 async function selectStore(storeId) {
   await updateHouseholdStore(storeId);
+  window.scrollTo({ top: 0, behavior: "instant" });
 
   setTimeout(function() {
     itemInput.focus();
@@ -318,8 +286,9 @@ function applyStoreView() {
   const selectedStore = getSelectedStore();
 
   if (!selectedStore) {
-    storeStartScreen.classList.remove("hidden");
     appShell.classList.add("hidden");
+    storeStartScreen.classList.remove("hidden");
+    window.scrollTo({ top: 0, behavior: "instant" });
     return;
   }
 
@@ -329,6 +298,8 @@ function applyStoreView() {
   selectedStoreLogo.src = selectedStore.logo;
   selectedStoreLogo.alt = selectedStore.name + " logo";
   selectedStoreName.textContent = selectedStore.name;
+
+  window.scrollTo({ top: 0, behavior: "instant" });
 }
 
 function getSelectedStore() {
@@ -710,7 +681,7 @@ async function deleteItem(id) {
   try {
     const itemRef = doc(itemsCollectionRef, id);
     await deleteDoc(itemRef);
-    showToast("Slettet");
+    showToast("Vare slettet");
   } catch (error) {
     console.error("Kunne ikke slette vare:", error);
     alert("Varen kunne ikke slettes.");
@@ -719,6 +690,7 @@ async function deleteItem(id) {
 
 async function undoDelete() {
   if (!lastDeletedItem) {
+    hideToast();
     return;
   }
 
@@ -754,6 +726,9 @@ async function clearCheckedItems() {
   if (!confirmed) {
     return;
   }
+
+  lastDeletedItem = null;
+  hideToast();
 
   try {
     await Promise.all(
@@ -817,11 +792,13 @@ function showToast(message) {
   clearTimeout(toastTimer);
 
   toastTimer = setTimeout(function() {
+    lastDeletedItem = null;
     hideToast();
-  }, 5000);
+  }, 4000);
 }
 
 function hideToast() {
+  clearTimeout(toastTimer);
   toast.classList.add("hidden");
 }
 
